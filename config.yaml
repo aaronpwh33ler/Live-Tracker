@@ -1,0 +1,67 @@
+# reveal_cam settings. Every value can be overridden on the command line,
+# either with a dedicated flag (see `python reveal_cam.py -h`) or generically:
+#   python reveal_cam.py --set mask.feather=40 --set animation.style=slide
+# Relative paths are resolved from the project folder.
+
+camera:
+  index: 0            # webcam index (0 = default camera)
+  width: 1280
+  height: 720
+  fps: 30             # requested capture rate; also the recording frame rate
+  mirror: true        # selfie-style mirroring (live mode only)
+
+# Use an AI-generated face of a fictional person, or a real person who has
+# given consent. See README.md -> "Permission".
+source_face: faces/source.jpg
+
+# auto = use the provider picked by scripts/check_env
+# or one of: cuda, coreml, dml, openvino, cpu
+execution_provider: auto
+models_dir: models
+
+swap:
+  enabled: true
+  all_faces: false    # false = only the largest face
+
+enhancer:
+  enabled: false      # GFPGAN on the face region; big quality boost, big speed cost
+
+detection:
+  width: 640          # detect at this width, scaled back up (320/480 = faster)
+  skip_n: 1           # run detection every N frames, reuse boxes in between
+  min_score: 0.5
+
+mask:
+  mode: rect          # rect | quad | face | full
+  feather: 25         # edge softness in pixels (0 = hard edge)
+  border:
+    enabled: true
+    thickness: 2
+    color: [255, 255, 255]   # BGR
+  # Normalized coordinates (0..1) so they work at any resolution.
+  rect: [0.30, 0.15, 0.70, 0.85]                              # x1, y1, x2, y2
+  quad: [[0.33, 0.10], [0.72, 0.18], [0.66, 0.92], [0.27, 0.84]]  # TL, TR, BR, BL
+  face:
+    padding: 1.6      # window size relative to the detected face box
+    smoothing: 0.4    # 0 = no smoothing, 0.9 = very smooth but laggy
+    hold_frames: 15   # keep the window this many frames after the face is lost
+
+animation:
+  style: wipe         # wipe | slide | scale | fade
+  direction: right    # left | right | up | down (wipe and slide)
+  frames: 20          # length of an open/close animation
+  start_open: true
+  # Offline mode only: timed reveal. Before the first keyframe the window is in
+  # the opposite state (so "open at 2.0" starts closed).
+  keyframes: []
+  # keyframes:
+  #   - {t: 2.0, action: open}
+  #   - {t: 5.5, action: close}
+
+output:
+  preview: true       # live: preview window. Offline: use --preview to watch progress
+  fullscreen: false
+  show_fps: true
+  record_dir: recordings
+  crf: 20             # H.264 quality (lower = better/larger)
+  virtual_cam: false  # needs OBS Virtual Camera (Win/macOS) or v4l2loopback (Linux)

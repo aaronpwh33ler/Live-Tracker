@@ -1,0 +1,3 @@
+# Intel CPU / integrated or Arc graphics (Windows/Linux x86_64).
+-r requirements-base.txt
+onnxruntime-openvino==1.21.0

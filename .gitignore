@@ -1,0 +1,11 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env_report.json
+models/*
+!models/README.md
+recordings/
+third_party/
+*.video_only.mp4

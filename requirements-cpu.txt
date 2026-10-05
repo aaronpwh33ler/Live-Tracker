@@ -1,0 +1,4 @@
+# CPU only (and Intel Macs). Not real-time: use offline mode (--input/--output).
+-r requirements-base.txt
+onnxruntime==1.28.0; sys_platform != "darwin" or platform_machine == "arm64"
+onnxruntime==1.23.0; sys_platform == "darwin" and platform_machine != "arm64"

@@ -1,0 +1,4 @@
+# NVIDIA GPU (Windows/Linux). Only the NVIDIA driver is needed system-wide: the
+# [cuda,cudnn] extras install the CUDA 12 runtime and cuDNN 9 into the venv.
+-r requirements-base.txt
+onnxruntime-gpu[cuda,cudnn]==1.26.0

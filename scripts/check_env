@@ -1,0 +1,322 @@
+#!/usr/bin/env python3
+"""Report hardware/OS details and pick an ONNX Runtime execution provider.
+
+Usage:
+    python scripts/check_env            # human-readable report
+    python scripts/check_env --json     # machine-readable report
+
+Writes the decision to `.env_report.json` in the project root, which
+`reveal_cam.py` reads when `execution_provider: auto`.
+
+Uses only the standard library so it can run before any venv exists.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ctypes
+import json
+import os
+import platform
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+REPORT_PATH = PROJECT_ROOT / ".env_report.json"
+
+# provider -> (requirements file, mode, expected fps text)
+PATHS = {
+    "CUDAExecutionProvider": ("requirements-cuda.txt", "live", "~20-30+ FPS live (enhancer off)"),
+    "CoreMLExecutionProvider": ("requirements-coreml.txt", "live", "~8-15 FPS live (enhancer off)"),
+    "DmlExecutionProvider": ("requirements-directml.txt", "live", "~8-20 FPS live, depends on the card"),
+    "OpenVINOExecutionProvider": ("requirements-openvino.txt", "live", "~3-8 FPS (marginal)"),
+    "CPUExecutionProvider": ("requirements-cpu.txt", "offline", "~0.5-2 FPS: not real-time, use offline mode"),
+}
+
+
+def _run(cmd: list[str], timeout: float = 10.0) -> str | None:
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout.strip()
+
+
+def os_info() -> dict:
+    system = platform.system()
+    version = platform.release()
+    if system == "Darwin":
+        version = platform.mac_ver()[0] or version
+    elif system == "Windows":
+        version = platform.version()
+    elif system == "Linux":
+        try:
+            info = platform.freedesktop_os_release()
+            version = f"{info.get('PRETTY_NAME', '')} (kernel {platform.release()})"
+        except (OSError, AttributeError):
+            pass
+    return {"system": system, "version": version}
+
+
+def cpu_arch() -> str:
+    machine = platform.machine().lower()
+    if machine in ("amd64", "x86_64", "x64"):
+        return "x86_64"
+    if machine in ("arm64", "aarch64"):
+        return "arm64"
+    return machine or "unknown"
+
+
+def cpu_name() -> str:
+    system = platform.system()
+    if system == "Darwin":
+        return _run(["sysctl", "-n", "machdep.cpu.brand_string"]) or platform.processor()
+    if system == "Linux":
+        try:
+            for line in Path("/proc/cpuinfo").read_text().splitlines():
+                if line.lower().startswith(("model name", "hardware")):
+                    return line.split(":", 1)[1].strip()
+        except OSError:
+            pass
+    return platform.processor() or "unknown"
+
+
+def ram_gb() -> float | None:
+    system = platform.system()
+    try:
+        if system == "Linux":
+            for line in Path("/proc/meminfo").read_text().splitlines():
+                if line.startswith("MemTotal:"):
+                    return round(int(line.split()[1]) / 1024 / 1024, 1)
+        elif system == "Darwin":
+            out = _run(["sysctl", "-n", "hw.memsize"])
+            if out:
+                return round(int(out) / 1024**3, 1)
+        elif system == "Windows":
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+            stat = MEMORYSTATUSEX()
+            stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))  # type: ignore[attr-defined]
+            return round(stat.ullTotalPhys / 1024**3, 1)
+    except (OSError, ValueError, AttributeError):
+        pass
+    return None
+
+
+def detect_gpus() -> list[dict]:
+    """Return a list of {vendor, name, extra} dicts."""
+    gpus: list[dict] = []
+    system = platform.system()
+
+    # NVIDIA via nvidia-smi (works on Linux and Windows).
+    if shutil.which("nvidia-smi"):
+        out = _run(["nvidia-smi", "--query-gpu=name,memory.total,driver_version",
+                    "--format=csv,noheader"])
+        if out:
+            for line in out.splitlines():
+                parts = [p.strip() for p in line.split(",")]
+                gpus.append({"vendor": "nvidia", "name": parts[0],
+                             "extra": f"VRAM {parts[1]}, driver {parts[2]}" if len(parts) >= 3 else ""})
+
+    if system == "Darwin":
+        if cpu_arch() == "arm64":
+            chip = _run(["sysctl", "-n", "machdep.cpu.brand_string"]) or "Apple Silicon"
+            gpus.append({"vendor": "apple", "name": chip, "extra": "Apple Silicon GPU/Neural Engine"})
+        else:
+            out = _run(["system_profiler", "SPDisplaysDataType"], timeout=20) or ""
+            for m in re.finditer(r"Chipset Model:\s*(.+)", out):
+                name = m.group(1).strip()
+                gpus.append({"vendor": _vendor_from_name(name), "name": name, "extra": "Intel Mac"})
+
+    elif system == "Windows":
+        out = _run(["powershell", "-NoProfile", "-Command",
+                    "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"],
+                   timeout=20)
+        if out is None:
+            out = _run(["wmic", "path", "win32_VideoController", "get", "name"])
+        for name in (out or "").splitlines():
+            name = name.strip()
+            if not name or name.lower() == "name":
+                continue
+            vendor = _vendor_from_name(name)
+            if vendor == "nvidia" and any(g["vendor"] == "nvidia" for g in gpus):
+                continue
+            gpus.append({"vendor": vendor, "name": name, "extra": ""})
+
+    elif system == "Linux":
+        out = _run(["lspci"]) or ""
+        for line in out.splitlines():
+            if re.search(r"VGA|3D controller|Display controller", line):
+                name = line.split(":", 2)[-1].strip()
+                vendor = _vendor_from_name(name)
+                if vendor == "nvidia" and any(g["vendor"] == "nvidia" for g in gpus):
+                    continue
+                gpus.append({"vendor": vendor, "name": name, "extra": ""})
+        if not out:
+            # Fall back to DRM sysfs vendor IDs when lspci is not installed.
+            ids = {"0x10de": "nvidia", "0x1002": "amd", "0x8086": "intel"}
+            for vendor_file in Path("/sys/class/drm").glob("card*/device/vendor"):
+                try:
+                    vendor = ids.get(vendor_file.read_text().strip())
+                except OSError:
+                    vendor = None
+                if vendor and not any(g["vendor"] == vendor for g in gpus):
+                    gpus.append({"vendor": vendor, "name": f"{vendor} GPU (from sysfs)", "extra": ""})
+
+    # Drop virtual display adapters (cloud VMs, remote desktop).
+    virtual = ("virtio", "vmware", "virtualbox", "cirrus", "qxl", "bochs", "hyper-v",
+               "microsoft basic", "remote display", "aspeed", "matrox")
+    return [g for g in gpus if not any(v in g["name"].lower() for v in virtual)]
+
+
+def _vendor_from_name(name: str) -> str:
+    n = name.lower()
+    if "nvidia" in n or "geforce" in n or "quadro" in n or "rtx" in n:
+        return "nvidia"
+    if "amd" in n or "radeon" in n or "ati " in n:
+        return "amd"
+    if "intel" in n or "iris" in n or "uhd graphics" in n or re.search(r"\barc\b", n):
+        return "intel"
+    if "apple" in n:
+        return "apple"
+    return "other"
+
+
+def python_versions() -> list[str]:
+    found: dict[str, str] = {}
+    candidates = ["python3", "python"] + [f"python3.{m}" for m in range(8, 16)]
+    for exe in candidates:
+        path = shutil.which(exe)
+        if not path:
+            continue
+        ver = _run([path, "-c", "import sys;print('%d.%d.%d'%sys.version_info[:3])"])
+        if ver and ver not in found:
+            found[ver] = path
+    if platform.system() == "Windows" and shutil.which("py"):
+        out = _run(["py", "--list"]) or ""
+        for m in re.finditer(r"-V:(\d+\.\d+)", out):
+            found.setdefault(m.group(1), "py -" + m.group(1))
+    return [f"{v} ({p})" for v, p in sorted(found.items(), key=lambda kv: [int(x) for x in kv[0].split(".")])]
+
+
+def installed_onnxruntime_providers() -> list[str] | None:
+    """Providers of the onnxruntime installed in the active interpreter, if any."""
+    try:
+        import onnxruntime  # type: ignore
+    except Exception:
+        return None
+    try:
+        return list(onnxruntime.get_available_providers())
+    except Exception:
+        return None
+
+
+def choose_provider(system: str, arch: str, gpus: list[dict]) -> tuple[str, str]:
+    vendors = {g["vendor"] for g in gpus}
+    if "nvidia" in vendors and shutil.which("nvidia-smi"):
+        return "CUDAExecutionProvider", "NVIDIA GPU with a working driver (nvidia-smi responds)"
+    if system == "Darwin" and arch == "arm64":
+        return "CoreMLExecutionProvider", "Apple Silicon Mac"
+    if system == "Windows" and vendors & {"amd", "intel", "nvidia"}:
+        return "DmlExecutionProvider", "Windows with a DirectX 12 capable GPU"
+    if "intel" in vendors and arch == "x86_64" and system != "Darwin":
+        return "OpenVINOExecutionProvider", "Intel integrated/discrete graphics"
+    if system == "Darwin":
+        return "CPUExecutionProvider", "Intel Mac: no supported accelerator"
+    return "CPUExecutionProvider", "no supported GPU found"
+
+
+def build_report() -> dict:
+    osi = os_info()
+    arch = cpu_arch()
+    gpus = detect_gpus()
+    provider, reason = choose_provider(osi["system"], arch, gpus)
+    req, mode, fps = PATHS[provider]
+    ort = installed_onnxruntime_providers()
+    report = {
+        "os": osi,
+        "arch": arch,
+        "cpu": cpu_name(),
+        "cpu_count": os.cpu_count(),
+        "ram_gb": ram_gb(),
+        "gpus": gpus,
+        "python_running": platform.python_version(),
+        "python_versions": python_versions(),
+        "provider": provider,
+        "provider_reason": reason,
+        "requirements_file": req,
+        "default_mode": mode,
+        "expected_fps": fps,
+        "onnxruntime_providers_installed": ort,
+    }
+    if ort is not None and provider not in ort:
+        report["warning"] = (
+            f"{provider} was chosen but the installed onnxruntime only offers {ort}. "
+            f"Install {req} (see TROUBLESHOOTING.md)."
+        )
+    return report
+
+
+def print_report(r: dict) -> None:
+    line = "-" * 60
+    print(line)
+    print("Environment check")
+    print(line)
+    print(f"OS            : {r['os']['system']} {r['os']['version']}")
+    print(f"CPU           : {r['cpu']} ({r['arch']}, {r['cpu_count']} logical cores)")
+    print(f"RAM           : {r['ram_gb']} GB" if r["ram_gb"] else "RAM           : unknown")
+    if r["gpus"]:
+        for i, g in enumerate(r["gpus"]):
+            extra = f" [{g['extra']}]" if g["extra"] else ""
+            print(f"GPU {i}         : {g['vendor']}: {g['name']}{extra}")
+    else:
+        print("GPU           : none detected")
+    print(f"Python (this) : {r['python_running']}")
+    print("Pythons found : " + (", ".join(r["python_versions"]) or "none"))
+    if r["onnxruntime_providers_installed"] is not None:
+        print(f"onnxruntime   : providers {r['onnxruntime_providers_installed']}")
+    print(line)
+    print(f"Chosen provider : {r['provider']}  ({r['provider_reason']})")
+    print(f"Requirements    : {r['requirements_file']}")
+    print(f"Expected speed  : {r['expected_fps']}")
+    print(f"Default mode    : {r['default_mode'].upper()}")
+    if r["provider"] == "CPUExecutionProvider":
+        print()
+        print("This machine is CPU-only. Live webcam swapping will NOT be real-time here.")
+        print("Use offline mode: python reveal_cam.py --input clip.mp4 --output out.mp4")
+    if "warning" in r:
+        print()
+        print("WARNING: " + r["warning"])
+    print(line)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--json", action="store_true", help="print the report as JSON")
+    ap.add_argument("--no-write", action="store_true", help=f"don't write {REPORT_PATH.name}")
+    args = ap.parse_args()
+
+    report = build_report()
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print_report(report)
+    if not args.no_write:
+        REPORT_PATH.write_text(json.dumps(report, indent=2) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

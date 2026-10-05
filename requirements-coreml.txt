@@ -1,0 +1,3 @@
+# Apple Silicon (M-series). The official macOS arm64 wheel ships the CoreML provider.
+-r requirements-base.txt
+onnxruntime==1.28.0
