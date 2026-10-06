@@ -21,7 +21,7 @@ The sample `faces/source.jpg` is a StyleGAN-generated face of a person who does 
 
 ## Easiest way: the app window
 
-1. **Install Python 3.11 or newer** from [python.org](https://www.python.org/downloads/) if you don't have it. On Windows, tick **"Add python.exe to PATH"** in the installer.
+1. **Install Python 3.13** (any of 3.11–3.14 works) from [python.org](https://www.python.org/downloads/) if you don't have one of those. Pre-release versions such as 3.15 aren't supported yet. You can keep them installed alongside. On Windows, tick **"Add python.exe to PATH"** in the installer.
 2. **Download this folder** and double-click the launcher:
    - **Mac:** `Reveal Cam.command`. The first time, macOS blocks it ("Apple could not verify… is free of malware") because it was downloaded. Click **Done**, then open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. Or, in Terminal inside the folder, run `xattr -dr com.apple.quarantine .` once, or start it with `./start.sh`.
    - **Windows:** `Reveal Cam.bat`.
@@ -87,9 +87,9 @@ On a CPU-only machine it says so plainly, and offline mode is the main way to us
 
 ## Setup for each hardware path
 
-`scripts/setup.py` does all of the following for you. Here are the manual equivalents. Every path uses a **project-local** `.venv` and needs **Python 3.11+**.
+`scripts/setup.py` does all of the following for you. Here are the manual equivalents. Every path uses a **project-local** `.venv` and needs **Python 3.11–3.14**.
 
-> **Why 3.11 and not 3.10?** The current Deep-Live-Cam README says "Python 3.11 is the minimum (onnxruntime dropped 3.10)". The pinned onnxruntime builds below have no 3.10 wheels. Python 3.11–3.13 work for every provider package. On macOS, Deep-Live-Cam recommends 3.14 for its own GUI, but `reveal_cam` doesn't need that.
+> **Why 3.11 and not 3.10?** The current Deep-Live-Cam README says "Python 3.11 is the minimum (onnxruntime dropped 3.10)". The pinned onnxruntime builds below have no 3.10 wheels. Python 3.11–3.14 work for every package. 3.15 doesn't yet: onnxruntime and PySide6 have no 3.15 builds.
 
 Uninstall any other `onnxruntime*` package first. They share one import name and conflict (see [TROUBLESHOOTING.md](TROUBLESHOOTING.md)).
 

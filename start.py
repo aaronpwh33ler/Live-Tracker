@@ -15,6 +15,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 VENV = ROOT / ".venv"
 MARKER = VENV / ".reveal_setup"
+# Python versions every dependency ships wheels for (onnxruntime, PySide6).
+SUPPORTED = ((3, 11), (3, 14))
 
 
 def venv_python() -> Path:
@@ -49,9 +51,10 @@ def pause(msg: str) -> None:
 
 def main() -> int:
     if not is_ready():
-        if sys.version_info < (3, 11):
-            pause(f"Reveal Cam needs Python 3.11 or newer (found {sys.version.split()[0]}).\n"
-                  "Install it from https://www.python.org/downloads/ and try again.")
+        if not SUPPORTED[0] <= sys.version_info[:2] <= SUPPORTED[1]:
+            pause(f"Reveal Cam needs Python 3.11 to 3.14 (this is {sys.version.split()[0]}).\n"
+                  "Install Python 3.13 from https://www.python.org/downloads/ (you can keep your\n"
+                  "other Python installed) and try again.")
             return 1
         print("=" * 64)
         print(" Setting up Reveal Cam. This happens once and downloads about")

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 import venv
@@ -47,14 +48,21 @@ def main() -> int:
     ap.add_argument("--from-launcher", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
 
-    if sys.version_info < (3, 11):
-        raise SystemExit(f"Python {sys.version.split()[0]} is too old: onnxruntime needs 3.11+. "
-                         f"Run this script with python3.11 (or newer).")
+    if not (3, 11) <= sys.version_info[:2] <= (3, 14):
+        raise SystemExit(f"Python {sys.version.split()[0]} isn't supported: onnxruntime and PySide6 "
+                         f"ship packages for Python 3.11-3.14. Run this script with python3.13.")
 
     run([sys.executable, ROOT / "scripts" / "check_env"])
     report = json.loads((ROOT / ".env_report.json").read_text())
     req = REQS[args.provider] if args.provider else report["requirements_file"]
 
+    if venv_python().exists():
+        r = subprocess.run([str(venv_python()), "-c", "import sys; print('%d.%d' % sys.version_info[:2])"],
+                           capture_output=True, text=True)
+        if r.stdout.strip() != "%d.%d" % sys.version_info[:2]:
+            # Built with a different (e.g. unsupported) Python: start over with this one.
+            print(f"Recreating {VENV.name}/ with Python {sys.version.split()[0]}")
+            shutil.rmtree(VENV)
     if not venv_python().exists():
         print(f"Creating virtual environment in {VENV.name}/")
         venv.EnvBuilder(with_pip=True).create(VENV)

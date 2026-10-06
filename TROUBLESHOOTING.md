@@ -37,7 +37,7 @@ The printed list must contain the provider `scripts/check_env` picked.
   - In Terminal, `cd` into the folder and run `xattr -dr com.apple.quarantine .` once. Double-clicking works from then on.
   - Or skip the launcher: in Terminal, inside the folder, run `./start.sh`.
 - **Mac: "Permission denied" when double-clicking** (some unzip tools drop the executable flag). In Terminal, run `chmod +x "Reveal Cam.command" start.sh` inside the folder.
-- **"Reveal Cam needs Python 3.11 or newer"**: install Python from https://www.python.org/downloads/. On Windows, tick "Add python.exe to PATH".
+- **"Reveal Cam needs Python 3.11, 3.12, 3.13 or 3.14"**, or setup fails with **"No matching distribution found for PySide6"** or onnxruntime: your Python is too old, or too new (a pre-release such as 3.15). Install Python 3.13 from https://www.python.org/downloads/; it can sit alongside other versions. On Windows, tick "Add python.exe to PATH". Then start Reveal Cam again. It picks 3.13 automatically and rebuilds its `.venv`.
 - **Setup fails halfway** (network drop, full disk): double-click again; setup picks up where it left off. To start completely fresh, delete the `.venv` folder.
 - **Download fails with `CERTIFICATE_VERIFY_FAILED` on a Mac**: run "Install Certificates.command" from your Python folder in Applications, then try again.
 - **Linux: the window doesn't open, with "Could not load the Qt platform plugin xcb".** Install Qt's X11 libraries, for example on Debian/Ubuntu: `sudo apt install libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1 libxcb-xkb1`.
