@@ -46,6 +46,10 @@ On a computer without a supported graphics card, the live camera runs at about 1
 - **Only the face changes.** The swap uses the person's facial features. Your hair, head shape, body and clothes stay your own.
 - Use JPG or PNG. iPhone HEIC photos can't be read, so share or export them as JPG first.
 
+### Updating
+
+Run `./update.sh` inside the folder (Mac/Linux). It downloads the latest version over the old one but keeps your setup and models, so there's no big re-download.
+
 The rest of this README is for running it from a terminal and for customising it.
 
 ## Quick start (terminal)

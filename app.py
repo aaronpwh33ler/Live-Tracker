@@ -409,6 +409,9 @@ class Window(QWidget):
                 mins, secs = divmod(eta, 60)
                 self.status.setText(f"Making your video… frame {done} of {total}, about "
                                     f"{f'{mins} min ' if mins else ''}{secs} s left.")
+            elif line.startswith("[provider]") and ("Switching" in line or "Trying" in line):
+                self.status.setText("Hardware acceleration couldn't run part of the AI model, so that part "
+                                    "is using a slower fallback. It still works.")
             elif line.startswith("[live] camera"):
                 self.status.setText("Camera running. Click the camera window and press H for all keys.")
             elif line.startswith("[record] saved"):

@@ -14,7 +14,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .insight import FaceAnalysis, INSwapper, norm_crop2
+from .insight import FaceAnalysis, INSwapper, SafeSession, norm_crop2
 
 # Standard FFHQ 5-point template at 512x512 (left eye, right eye, nose,
 # left mouth corner, right mouth corner) used to align faces for GFPGAN.
@@ -221,7 +221,7 @@ class FaceEngine:
 
         opts = ort.SessionOptions()
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        self.enhancer = ort.InferenceSession(str(path), sess_options=opts, providers=self.providers)
+        self.enhancer = SafeSession(path, self.providers, sess_options=opts)
         shape = self.enhancer.get_inputs()[0].shape
         self.enh_size = int(shape[2]) if isinstance(shape[2], int) else 512
         self.enh_mask = _soft_square_mask(self.enh_size, margin=self.enh_size * 0.04,

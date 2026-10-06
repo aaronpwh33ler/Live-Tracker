@@ -117,8 +117,88 @@ class Face:
         return self.embedding / np.linalg.norm(self.embedding)
 
 
-def _session(path: Path, providers: list) -> onnxruntime.InferenceSession:
-    return onnxruntime.InferenceSession(str(path), providers=providers)
+def _provider_name(p) -> str:
+    return p[0] if isinstance(p, tuple) else p
+
+
+def fallback_chain(providers: list) -> list[list]:
+    """Provider setups to try in order. Hardware acceleration can refuse a
+    particular model (CoreML in particular rejects some graphs, sometimes only
+    once it runs), so every accelerated setup steps down to plain CPU."""
+    first = _provider_name(providers[0])
+    if first == "CPUExecutionProvider":
+        return [["CPUExecutionProvider"]]
+    if first == "CoreMLExecutionProvider":
+        return [
+            [("CoreMLExecutionProvider", {"ModelFormat": "MLProgram", "MLComputeUnits": "ALL"}),
+             "CPUExecutionProvider"],
+            [("CoreMLExecutionProvider", {"ModelFormat": "MLProgram", "MLComputeUnits": "CPUAndGPU"}),
+             "CPUExecutionProvider"],
+            ["CPUExecutionProvider"],
+        ]
+    return [list(providers), ["CPUExecutionProvider"]]
+
+
+def _describe(setup: list) -> str:
+    p = setup[0]
+    if isinstance(p, tuple) and p[0] == "CoreMLExecutionProvider":
+        return "CoreML (GPU only)" if p[1].get("MLComputeUnits") == "CPUAndGPU" else "CoreML"
+    return _provider_name(p).replace("ExecutionProvider", "")
+
+
+def _short(e: Exception) -> str:
+    msg = str(e).strip().splitlines()[0] if str(e).strip() else type(e).__name__
+    return msg if len(msg) < 160 else msg[:160] + "…"
+
+
+class SafeSession:
+    """An onnxruntime session that steps down to the next provider setup in
+    `fallback_chain` if loading or running the model fails, instead of crashing."""
+
+    def __init__(self, path: Path, providers: list, sess_options=None):
+        self.path = Path(path)
+        self.chain = fallback_chain(providers)
+        self.sess_options = sess_options
+        self.level = -1
+        self._open(0)
+
+    def _open(self, start: int) -> None:
+        for i in range(start, len(self.chain)):
+            try:
+                self.session = onnxruntime.InferenceSession(str(self.path), sess_options=self.sess_options,
+                                                            providers=self.chain[i])
+                self.level = i
+                return
+            except Exception as e:
+                if i == len(self.chain) - 1:
+                    raise
+                print(f"[provider] {self.path.name}: {_describe(self.chain[i])} could not load it "
+                      f"({_short(e)}). Trying {_describe(self.chain[i + 1])}.", flush=True)
+
+    def run(self, output_names, feed):
+        while True:
+            try:
+                return self.session.run(output_names, feed)
+            except Exception as e:
+                accelerated = _provider_name(self.chain[self.level][0]) != "CPUExecutionProvider"
+                if not accelerated or self.level >= len(self.chain) - 1:
+                    raise
+                print(f"[provider] {self.path.name}: {_describe(self.chain[self.level])} failed while running "
+                      f"({_short(e)}). Switching to {_describe(self.chain[self.level + 1])}.", flush=True)
+                self._open(self.level + 1)
+
+    def get_inputs(self):
+        return self.session.get_inputs()
+
+    def get_outputs(self):
+        return self.session.get_outputs()
+
+    def get_providers(self):
+        return self.session.get_providers()
+
+
+def _session(path: Path, providers: list) -> SafeSession:
+    return SafeSession(path, providers)
 
 
 # ------------------------------------------------------------------ detection

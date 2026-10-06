@@ -44,6 +44,12 @@ The printed list must contain the provider `scripts/check_env` picked.
 - **The camera list only shows "Default camera / Camera 2 / Camera 3"**: the app couldn't read camera names. Try each one; the right one opens your webcam.
 - **The app closes the camera window right away**: click "Start camera" again and read the error box. Its "Show Details" button has the full log.
 
+## Apple Silicon: CoreML errors
+
+**Symptom:** a message like `[provider] det_10g.onnx: CoreML failed while running (… Error executing model …). Switching to CoreML (GPU only).`
+
+Apple's CoreML acceleration can refuse some models, sometimes only once they start running. Reveal Cam then retries that model with CoreML on the GPU only, and finally on the CPU, so it keeps working, just slower for that model. Which models fell back is printed in the Terminal window. Please report it: it tells us which model needs a CoreML-specific fix. To skip CoreML entirely, set `execution_provider: cpu` in `config.yaml`.
+
 ## Camera permission prompts
 
 - **macOS** asks for camera permission per *terminal app* (Terminal, iTerm, VS Code), not per Python script. The first time, approve the prompt. If you dismissed it, open **System Settings → Privacy & Security → Camera**, enable your terminal app, then **quit and reopen** the terminal. Running from an IDE's integrated terminal uses the IDE's permission.

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import platform
 import subprocess
 import sys
 
@@ -62,10 +61,7 @@ def resolve_providers(requested: str) -> list:
               f"See TROUBLESHOOTING.md -> 'onnxruntime provider conflicts'.")
         name = "CPUExecutionProvider"
 
-    if name == "CoreMLExecutionProvider" and platform.machine() == "arm64":
-        providers: list = [("CoreMLExecutionProvider", {"ModelFormat": "MLProgram", "MLComputeUnits": "ALL"}),
-                           "CPUExecutionProvider"]
-    elif name == "CPUExecutionProvider":
+    if name == "CPUExecutionProvider":
         providers = ["CPUExecutionProvider"]
     else:
         providers = [name, "CPUExecutionProvider"]
