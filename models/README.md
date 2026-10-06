@@ -13,7 +13,8 @@ Expected layout:
 models/
   inswapper_128_fp16.onnx          # or inswapper_128.onnx
   gfpgan-1024.onnx                 # optional
-  insightface/models/buffalo_l/    # auto-downloaded on first run
+  buffalo_l/det_10g.onnx           # face detector    } auto-downloaded on first run
+  buffalo_l/w600k_r50.onnx         # face recognizer  }
 ```
 
 The InsightFace models are licensed for non-commercial research use only.

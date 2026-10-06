@@ -4,16 +4,14 @@
     python scripts/download_models.py              # swapper + face analysis
     python scripts/download_models.py --enhancer   # also the GFPGAN enhancer
 
-The InsightFace `buffalo_l` detector/recognizer pack is fetched by insightface
-itself into models/insightface/ the first time reveal_cam.py runs; pass
---buffalo to fetch it now instead.
+The InsightFace `buffalo_l` detector/recognizer is fetched into models/buffalo_l/
+the first time reveal_cam.py runs; pass --buffalo to fetch it now instead.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
-import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -33,7 +31,10 @@ def fetch(name: str, url: str, size: int) -> None:
         return
     tmp = dest.with_suffix(dest.suffix + ".part")
     print(f"[get] {name} ({size / 1e6:.0f} MB)")
-    with urllib.request.urlopen(url) as r, open(tmp, "wb") as fh:
+    sys.path.insert(0, str(ROOT))
+    from reveal.insight import urlopen
+
+    with urlopen(url) as r, open(tmp, "wb") as fh:
         done = 0
         while chunk := r.read(1 << 20):
             fh.write(chunk)
@@ -57,10 +58,10 @@ def main() -> int:
     if args.enhancer:
         fetch("gfpgan-1024.onnx", *FILES["gfpgan-1024.onnx"])
     if args.buffalo:
-        from insightface.app import FaceAnalysis
+        sys.path.insert(0, str(ROOT))
+        from reveal.insight import ensure_buffalo
 
-        FaceAnalysis(name="buffalo_l", root=str(MODELS / "insightface"), providers=["CPUExecutionProvider"])
-        print("[ok] buffalo_l")
+        print(f"[ok] buffalo_l in {ensure_buffalo(MODELS).relative_to(ROOT)}")
     return 0
 
 

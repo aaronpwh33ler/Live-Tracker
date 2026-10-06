@@ -19,7 +19,36 @@ Don't use this tool to impersonate real people, deceive anyone, get around ident
 
 The sample `faces/source.jpg` is a StyleGAN-generated face of a person who does not exist (see [`faces/README.md`](faces/README.md)).
 
-## Quick start
+## Easiest way: the app window
+
+1. **Install Python 3.11 or newer** from [python.org](https://www.python.org/downloads/) if you don't have it. On Windows, tick **"Add python.exe to PATH"** in the installer.
+2. **Download this folder** and double-click the launcher:
+   - **Mac:** `Reveal Cam.command`. The first time, macOS may say it's from an unidentified developer. Right-click it, choose **Open**, then **Open** again.
+   - **Windows:** `Reveal Cam.bat`.
+   - **Linux:** `start.sh` (or run `./start.sh` in a terminal).
+3. **Wait for the one-time setup.** The first launch checks your hardware, then downloads about 1 GB of Python packages and AI models into this folder. Later launches open straight away.
+4. **In the window:**
+   1. Choose a photo of the person.
+   2. Tick the permission box.
+   3. Pick your camera and a window shape.
+   4. Press **Start camera**.
+
+   A camera window opens. Press **Space** to show or hide the swap, **1–4** to change the shape, and **Q** to close it.
+
+![The Reveal Cam window](docs/app.png)
+
+On a computer without a supported graphics card, the live camera runs at about 1 frame a second. Use **Make a video from a file…** instead: pick a clip, and you get a new video with the swap and the original sound.
+
+### What photo to use
+
+- **A clear, front-facing photo works best:** one person, even light, face not covered.
+- **A full-body photo is fine.** The app searches the photo at higher resolution to find a small face, and tells you if the face is too small to give a good likeness.
+- **Only the face changes.** The swap uses the person's facial features. Your hair, head shape, body and clothes stay your own.
+- Use JPG or PNG. iPhone HEIC photos can't be read, so share or export them as JPG first.
+
+The rest of this README is for running it from a terminal and for customising it.
+
+## Quick start (terminal)
 
 ```bash
 # 1. Check the hardware and see which path you're on
@@ -68,8 +97,6 @@ Uninstall any other `onnxruntime*` package first. They share one import name and
 python3.11 -m venv .venv && source .venv/bin/activate     # Windows: py -3.11 -m venv .venv; .venv\Scripts\activate
 pip uninstall -y onnxruntime onnxruntime-gpu onnxruntime-directml onnxruntime-openvino onnxruntime-silicon
 pip install -r requirements-<provider>.txt
-# insightface pulls in opencv-python-headless, which hides the preview window; keep the GUI build:
-pip uninstall -y opencv-python-headless && pip install --force-reinstall --no-deps opencv-python==4.14.0.94
 python scripts/download_models.py --buffalo [--enhancer]
 ```
 
@@ -99,7 +126,7 @@ All models go in `models/` and are git-ignored. `python scripts/download_models.
 |---|---|---|
 | `inswapper_128_fp16.onnx` | 278 MB | the face swap (InsightFace inswapper). The fp32 `inswapper_128.onnx` also works, and the same speed on CPU. |
 | `gfpgan-1024.onnx` | 366 MB | optional GFPGAN v1.4 enhancer (`--enhancer`) |
-| `insightface/models/buffalo_l/` | 280 MB | SCRFD face detector + ArcFace recognizer. Downloaded automatically on first run, or with `--buffalo`. |
+| `buffalo_l/det_10g.onnx`, `buffalo_l/w600k_r50.onnx` | 180 MB | SCRFD face detector + ArcFace recognizer, extracted from InsightFace's `buffalo_l.zip` (a 280 MB download). Downloaded automatically on first run, or with `--buffalo`. |
 
 The handoff mentioned `GFPGANv1.4.pth`. Deep-Live-Cam now ships GFPGAN as ONNX (`gfpgan-1024.onnx`), which runs on the same onnxruntime provider and avoids a PyTorch dependency, so that's what this project uses.
 
@@ -187,8 +214,8 @@ Every setting lives in [`config.yaml`](config.yaml), which is commented. Common 
 For each frame:
 
 1. **Capture.** A reader thread grabs webcam frames and keeps only the newest one, so slow processing never builds latency. The frame is mirrored for selfie view.
-2. **Detect.** InsightFace `buffalo_l` (SCRFD) runs at reduced resolution (`detection.width`, default 640 px wide) and scales boxes and landmarks back up. With `skip_n > 1` it detects every N frames and reuses the boxes in between.
-3. **Swap.** `inswapper_128` is loaded with `insightface.model_zoo.get_model`. The source embedding is computed **once at startup**. Only faces that overlap the open window are swapped, and none are swapped while the window is closed. Paste-back is restricted to the face's bounding box with a pre-computed soft edge.
+2. **Detect.** InsightFace's `buffalo_l` SCRFD detector runs at reduced resolution (`detection.width`, default 640 px wide) and scales boxes and landmarks back up. With `skip_n > 1` it detects every N frames and reuses the boxes in between.
+3. **Swap.** `inswapper_128` runs on the aligned face. The source embedding is computed **once at startup**. Only faces that overlap the open window are swapped, and none are swapped while the window is closed. Paste-back is restricted to the face's bounding box with a pre-computed soft edge.
 4. **Enhance (optional).** GFPGAN runs on the aligned face region only.
 5. **Composite.** `real * (1 - mask) + swapped * mask`, computed only inside the mask's bounding box. The mask is the window shape, filled with sub-pixel anti-aliasing and Gaussian-feathered. It's cached while nothing changes.
 6. **Output.** The result goes to the preview, the recorder (ffmpeg pipe) and/or the virtual camera.
@@ -196,10 +223,15 @@ For each frame:
 ### Code layout
 
 ```
+Reveal Cam.command/.bat, start.sh   double-click launchers -> start.py
+start.py                first-run setup, then opens app.py (stdlib only)
+app.py                  the app window (PySide6); runs reveal_cam.py as a child process
 reveal_cam.py           entry point: live + offline loops, HUD, key handling
 reveal/config.py        defaults <- config.yaml <- CLI
 reveal/providers.py     execution provider resolution / fallback
-reveal/engine.py        detection, swap, GFPGAN enhancer
+reveal/engine.py        source-photo face search, detection, swap, GFPGAN enhancer
+reveal/insight.py       the parts of InsightFace we use (detector, recognizer, alignment, swapper
+                        loading), ported so no compiler is needed to install
 reveal/masks.py         mask shapes, feathering, border, animation, mouse editing
 reveal/io.py            camera thread, ffmpeg writer, audio remux, virtual camera
 scripts/check_env       hardware report + provider choice (stdlib only)
@@ -207,7 +239,7 @@ scripts/setup.py        venv + install + model download
 scripts/setup_baseline.py  stock Deep-Live-Cam in third_party/
 scripts/download_models.py
 scripts/benchmark.py    per-stage timings for this machine
-tests/test_masks.py     model-free tests (masks, animation, compositing, config)
+tests/                  model-free tests (masks, animation, compositing, config, alignment math)
 ```
 
 Run the tests with `pip install -r requirements-dev.txt && python -m pytest tests`.
@@ -248,7 +280,7 @@ On this machine the swap model is the whole cost: detection settings barely matt
 
 - This project is licensed under **AGPL-3.0** (see [`LICENSE`](LICENSE)) to stay compatible with Deep-Live-Cam, whose model-loading approach, model downloads and alignment template it follows.
 - **Deep-Live-Cam** is © its contributors, under AGPL-3.0: https://github.com/hacksider/Deep-Live-Cam
-- **InsightFace** code is MIT-licensed, but the **InsightFace pretrained models (`buffalo_l`, `inswapper_128`) are for non-commercial research use only**. Don't use this tool commercially without obtaining the appropriate model licenses.
+- **InsightFace** code is MIT-licensed. `reveal/insight.py` is a port of part of it and keeps its copyright notice. But the **InsightFace pretrained models (`buffalo_l`, `inswapper_128`) are for non-commercial research use only**. Don't use this tool commercially without obtaining the appropriate model licenses.
 - **GFPGAN** (Tencent ARC) is under its own license (Apache-2.0 with additional terms for some components).
 
 See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for details.

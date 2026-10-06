@@ -30,7 +30,16 @@ The printed list must contain the provider `scripts/check_env` picked.
 
 **Mixed OpenCV packages.** `opencv-python-headless` has no preview window. If both it and `opencv-python` are installed, you may get "no GUI available". Fix with `pip uninstall -y opencv-python-headless opencv-python && pip install opencv-python==4.14.0.94`.
 
-**Installing `insightface` fails on Windows** with "Microsoft Visual C++ 14.0 or greater is required". Install the "Desktop development with C++" workload from the Visual Studio Build Tools and retry, or use Python 3.11–3.12, where prebuilt wheels are easier to find.
+## The app window or launcher
+
+- **Mac says the launcher "can't be opened because it is from an unidentified developer".** Right-click `Reveal Cam.command`, choose **Open**, then **Open** again. You only need to do this once.
+- **Mac: "Permission denied" when double-clicking** (some unzip tools drop the executable flag). In Terminal, run `chmod +x "Reveal Cam.command" start.sh` inside the folder.
+- **"Reveal Cam needs Python 3.11 or newer"**: install Python from https://www.python.org/downloads/. On Windows, tick "Add python.exe to PATH".
+- **Setup fails halfway** (network drop, full disk): double-click again; setup picks up where it left off. To start completely fresh, delete the `.venv` folder.
+- **Download fails with `CERTIFICATE_VERIFY_FAILED` on a Mac**: run "Install Certificates.command" from your Python folder in Applications, then try again.
+- **Linux: the window doesn't open, with "Could not load the Qt platform plugin xcb".** Install Qt's X11 libraries, for example on Debian/Ubuntu: `sudo apt install libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1 libxcb-xkb1`.
+- **The camera list only shows "Default camera / Camera 2 / Camera 3"**: the app couldn't read camera names. Try each one; the right one opens your webcam.
+- **The app closes the camera window right away**: click "Start camera" again and read the error box. Its "Show Details" button has the full log.
 
 ## Camera permission prompts
 

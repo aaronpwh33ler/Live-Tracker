@@ -44,6 +44,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--provider", choices=sorted(REQS), help="override the detected hardware path")
     ap.add_argument("--enhancer", action="store_true", help="also download the GFPGAN enhancer model")
+    ap.add_argument("--from-launcher", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
 
     if sys.version_info < (3, 11):
@@ -62,15 +63,13 @@ def main() -> int:
     # Several onnxruntime packages share the same import name; only one may be installed.
     run([py, "-m", "pip", "uninstall", "-y", *ORT_PACKAGES])
     run([py, "-m", "pip", "install", "-r", ROOT / req])
-    # insightface -> albumentations pulls in opencv-python-headless, which shares the
-    # cv2 module with opencv-python and can remove the preview window. Keep only the GUI build.
-    run([py, "-m", "pip", "uninstall", "-y", "opencv-python-headless"])
-    run([py, "-m", "pip", "install", "--force-reinstall", "--no-deps", "opencv-python==4.14.0.94"])
     run([py, ROOT / "scripts" / "download_models.py", "--buffalo"] + (["--enhancer"] if args.enhancer else []))
     run([py, "-c", "import onnxruntime as o; print('onnxruntime providers:', o.get_available_providers())"])
     run([py, "-c", "import cv2; print('OpenCV', cv2.__version__, 'GUI:', "
                    "[l.split(':')[1].strip() for l in cv2.getBuildInformation().splitlines() if 'GUI:' in l])"])
 
+    if args.from_launcher:
+        return 0
     activate = r".venv\Scripts\activate" if sys.platform == "win32" else "source .venv/bin/activate"
     print("\nDone. Next:")
     print(f"  {activate}")

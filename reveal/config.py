@@ -103,6 +103,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     help="show a preview window (always on in live mode; opt-in for offline mode)")
     ap.add_argument("--no-preview", dest="preview", action="store_false", help="don't open a preview window")
     ap.add_argument("--record", action="store_true", help="live mode: start recording immediately")
+    ap.add_argument("--stdin-control", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--max-frames", type=int, help="stop after N frames (testing/benchmarks)")
     ap.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
                     help="override any config value, e.g. --set mask.border.enabled=false "

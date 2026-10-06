@@ -1,7 +1,8 @@
 """Face detection, swapping and optional enhancement.
 
 Detection: InsightFace `buffalo_l` (SCRFD detector + ArcFace recognition).
-Swap: `inswapper_128` via `insightface.model_zoo.get_model`.
+Swap: `inswapper_128`. Both are loaded through reveal/insight.py, a port of
+the parts of insightface we need (insightface itself needs a compiler to install).
 Enhance: GFPGAN v1.4 exported to ONNX (`gfpgan-1024.onnx`, from Deep-Live-Cam).
 """
 
@@ -12,6 +13,8 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+
+from .insight import FaceAnalysis, INSwapper, norm_crop2
 
 # Standard FFHQ 5-point template at 512x512 (left eye, right eye, nose,
 # left mouth corner, right mouth corner) used to align faces for GFPGAN.
@@ -73,27 +76,82 @@ def _paste_roi(frame: np.ndarray, patch: np.ndarray, mask: np.ndarray, M: np.nda
     frame[y0:y1, x0:x1] = (warped.astype(np.float32) * wmask + roi * (1.0 - wmask)).astype(np.uint8)
 
 
+SMALL_FACE_PX = 100  # below this the identity embedding gets noticeably weaker
+
+
+def load_face_analysis(models_dir: Path, providers: list, min_score: float = 0.5) -> FaceAnalysis:
+    """buffalo_l detection + recognition. Downloads into <models_dir>/buffalo_l on first use."""
+    return FaceAnalysis(Path(models_dir), providers, det_thresh=min_score)
+
+
+def read_image(path: Path) -> np.ndarray | None:
+    """Read an image (EXIF rotation applied). Handles non-ASCII paths on Windows."""
+    try:
+        data = np.fromfile(str(path), dtype=np.uint8)
+    except OSError:
+        return None
+    return cv2.imdecode(data, cv2.IMREAD_COLOR) if data.size else None
+
+
+def face_height(face) -> float:
+    return float(face.bbox[3] - face.bbox[1])
+
+
+def face_crop(img: np.ndarray, face, margin: float = 0.25) -> np.ndarray:
+    x1, y1, x2, y2 = face.bbox
+    mx, my = (x2 - x1) * margin, (y2 - y1) * margin
+    h, w = img.shape[:2]
+    x1, y1 = int(max(0, x1 - mx)), int(max(0, y1 - my))
+    x2, y2 = int(min(w, x2 + mx)), int(min(h, y2 + my))
+    return img[y1:y2, x1:x2].copy()
+
+
+def find_source_face(app, img: np.ndarray, min_score: float = 0.5):
+    """Find the largest face in a source photo. Works for close-ups and for
+    full-body photos where the face is small: detection is retried at higher
+    resolution, then with padding (very tight crops can also defeat the detector).
+    Returns the face (coordinates in `img`) or None."""
+    def largest(faces):
+        return max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1])) if faces else None
+
+    det = app.det_model
+    original = det.input_size
+    longest = max(img.shape[:2])
+    try:
+        for size in (640, 1024, 1600):
+            if size > 640 and longest <= size * 0.8:
+                break  # the image is already small; a bigger detector input won't help
+            det.input_size = (size, size)
+            face = largest(app.get(img))
+            if face is not None:
+                return face
+        det.input_size = (640, 640)
+        pad = longest // 4
+        padded = cv2.copyMakeBorder(img, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0)
+        face = largest(app.get(padded))
+        if face is not None:
+            # Report coordinates in the original photo (the embedding is already computed).
+            face.bbox = face.bbox - pad
+            face.kps = face.kps - pad
+        return face
+    finally:
+        det.input_size = original
+
 class FaceEngine:
     def __init__(self, models_dir: Path, providers: list, det_width: int = 640,
                  min_score: float = 0.5, enhancer: bool = False):
-        import insightface
-        from insightface.app import FaceAnalysis
-
         self.providers = providers
         self.models_dir = Path(models_dir)
         self.min_score = min_score
         self.det_width = det_width
 
-        # buffalo_l downloads into <models_dir>/insightface/models/buffalo_l on first run.
-        self.app = FaceAnalysis(name="buffalo_l", root=str(self.models_dir / "insightface"),
-                                providers=providers, allowed_modules=["detection", "recognition"])
-        self.app.prepare(ctx_id=0, det_size=(640, 640), det_thresh=min_score)
+        self.app = load_face_analysis(self.models_dir, providers, min_score)
 
         swapper_path = next((self.models_dir / f for f in SWAPPER_FILES if (self.models_dir / f).exists()), None)
         if swapper_path is None:
             raise SystemExit(f"No swapper model found in {self.models_dir}. "
                              f"Run: python scripts/download_models.py")
-        self.swapper = insightface.model_zoo.get_model(str(swapper_path), providers=providers)
+        self.swapper = INSwapper(swapper_path, providers)
         self.swap_size = int(self.swapper.input_size[0])
         self.swap_mask = _soft_square_mask(self.swap_size, margin=self.swap_size * 0.10,
                                            blur=self.swap_size * 0.05)
@@ -107,24 +165,19 @@ class FaceEngine:
     # ---------------------------------------------------------------- source
     def set_source(self, image_path: Path) -> np.ndarray:
         """Compute the source embedding once. Returns the source face crop for display."""
-        img = cv2.imread(str(image_path))
+        img = read_image(image_path)
         if img is None:
-            raise SystemExit(f"Could not read source image: {image_path}")
-        faces = self.app.get(img)
-        if not faces:
-            # Tight crops can defeat the detector; pad and retry once.
-            pad = max(img.shape[:2]) // 4
-            padded = cv2.copyMakeBorder(img, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0)
-            faces = self.app.get(padded)
-            img = padded
-        if not faces:
+            raise SystemExit(f"Could not read source image: {image_path} (use JPG or PNG)")
+        face = find_source_face(self.app, img, self.min_score)
+        if face is None:
             raise SystemExit(f"No face found in source image: {image_path}")
-        face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+        if face_height(face) < SMALL_FACE_PX:
+            print(f"[source] the face is only {face_height(face):.0f}px tall in this photo; "
+                  f"a closer photo of the face will give a better likeness.")
         latent = face.normed_embedding.reshape((1, -1)).astype(np.float32)
         latent = latent @ self.swapper.emap
         self.latent = (latent / np.linalg.norm(latent)).astype(np.float32)
-        x1, y1, x2, y2 = [int(v) for v in face.bbox]
-        return img[max(0, y1):y2, max(0, x1):x2].copy()
+        return face_crop(img, face)
 
     # ------------------------------------------------------------- detection
     def detect(self, frame: np.ndarray, all_faces: bool = False) -> list[DetectedFace]:
@@ -142,14 +195,12 @@ class FaceEngine:
 
     # ------------------------------------------------------------------ swap
     def swap(self, frame: np.ndarray, faces: list[DetectedFace]) -> np.ndarray:
-        from insightface.utils import face_align
-
         out = frame.copy()
         if self.latent is None:
             return out
         s = self.swapper
         for f in faces:
-            aimg, M = face_align.norm_crop2(frame, f.kps, self.swap_size)
+            aimg, M = norm_crop2(frame, f.kps, self.swap_size)
             blob = cv2.dnn.blobFromImage(aimg, 1.0 / s.input_std, (self.swap_size, self.swap_size),
                                          (s.input_mean,) * 3, swapRB=True)
             pred = s.session.run(s.output_names, {s.input_names[0]: blob, s.input_names[1]: self.latent})[0]

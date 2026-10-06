@@ -1,10 +1,13 @@
 # Shared by every hardware path. Install one requirements-<provider>.txt, not this file directly.
+# Everything here ships prebuilt wheels: no compiler needed on Windows, macOS or Linux.
 numpy>=2.0,<3
 opencv-python==4.14.0.94
-insightface==0.7.3
 onnx>=1.16
 pyyaml>=6.0
-tqdm>=4.66
+certifi>=2024.7.4
+# The desktop window (app.py) and camera names.
+PySide6>=6.7,<7
+cv2_enumerate_cameras==1.3.3
 # H.264 recording falls back to this bundled ffmpeg when none is on PATH.
 imageio-ffmpeg>=0.5
 # Optional virtual camera output (OBS Virtual Camera / v4l2loopback must be installed separately).

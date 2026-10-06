@@ -11,6 +11,7 @@ have given consent. See README.md.
 from __future__ import annotations
 
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -262,6 +263,15 @@ def run_live(cfg: dict, args, pipe: Pipeline, provider: str, thumb) -> None:
     ctl = LiveControls(cfg, pipe, w, h)
     if args.record:
         ctl.toggle_record()
+    if args.stdin_control:
+        # The desktop app asks us to stop by sending "quit" (or closing the pipe),
+        # so recordings are finalized properly.
+        def watch_stdin():
+            for line in sys.stdin:
+                if line.strip() == "quit":
+                    break
+            ctl.quit = True
+        threading.Thread(target=watch_stdin, daemon=True).start()
     fps, last = 0.0, time.perf_counter()
     frames = 0
     fps_log = []
@@ -294,6 +304,8 @@ def run_live(cfg: dict, args, pipe: Pipeline, provider: str, thumb) -> None:
                          ctl.show_info, ctl.show_help, thumb)
                 cv2.imshow(WINDOW, disp)
                 ctl.handle_key(cv2.waitKey(1) & 0xFF)
+                if cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1:
+                    ctl.quit = True  # window closed with its close button
             elif frames % 30 == 0:
                 print(f"[live] {frames} frames, {fps:.1f} FPS")
             if args.max_frames and frames >= args.max_frames:

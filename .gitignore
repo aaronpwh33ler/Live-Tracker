@@ -9,3 +9,4 @@ models/*
 recordings/
 third_party/
 *.video_only.mp4
+.launcher.json
