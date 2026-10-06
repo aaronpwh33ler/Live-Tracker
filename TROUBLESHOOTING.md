@@ -32,7 +32,10 @@ The printed list must contain the provider `scripts/check_env` picked.
 
 ## The app window or launcher
 
-- **Mac says the launcher "can't be opened because it is from an unidentified developer".** Right-click `Reveal Cam.command`, choose **Open**, then **Open** again. You only need to do this once.
+- **Mac: "Reveal Cam.command" Not Opened / "Apple could not verify… is free of malware".** macOS blocks double-clicked scripts downloaded from the internet. Do one of these:
+  - Click **Done**, open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. On macOS 15 (Sequoia) and later, right-click → Open no longer bypasses this.
+  - In Terminal, `cd` into the folder and run `xattr -dr com.apple.quarantine .` once. Double-clicking works from then on.
+  - Or skip the launcher: in Terminal, inside the folder, run `./start.sh`.
 - **Mac: "Permission denied" when double-clicking** (some unzip tools drop the executable flag). In Terminal, run `chmod +x "Reveal Cam.command" start.sh` inside the folder.
 - **"Reveal Cam needs Python 3.11 or newer"**: install Python from https://www.python.org/downloads/. On Windows, tick "Add python.exe to PATH".
 - **Setup fails halfway** (network drop, full disk): double-click again; setup picks up where it left off. To start completely fresh, delete the `.venv` folder.

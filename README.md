@@ -23,7 +23,7 @@ The sample `faces/source.jpg` is a StyleGAN-generated face of a person who does 
 
 1. **Install Python 3.11 or newer** from [python.org](https://www.python.org/downloads/) if you don't have it. On Windows, tick **"Add python.exe to PATH"** in the installer.
 2. **Download this folder** and double-click the launcher:
-   - **Mac:** `Reveal Cam.command`. The first time, macOS may say it's from an unidentified developer. Right-click it, choose **Open**, then **Open** again.
+   - **Mac:** `Reveal Cam.command`. The first time, macOS blocks it ("Apple could not verify… is free of malware") because it was downloaded. Click **Done**, then open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. Or, in Terminal inside the folder, run `xattr -dr com.apple.quarantine .` once, or start it with `./start.sh`.
    - **Windows:** `Reveal Cam.bat`.
    - **Linux:** `start.sh` (or run `./start.sh` in a terminal).
 3. **Wait for the one-time setup.** The first launch checks your hardware, then downloads about 1 GB of Python packages and AI models into this folder. Later launches open straight away.
